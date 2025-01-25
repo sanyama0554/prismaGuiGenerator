@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { NO_WORKSPACE_ERROR, SCHEMA_NOT_FOUND_ERROR, SCHEMA_READ_ERROR } from './constants/errors';
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('Congratulations, your extension "prisma-gui-generator" is now active!');
@@ -10,7 +11,7 @@ export function activate(context: vscode.ExtensionContext) {
     // ワークスペースフォルダが開かれているかチェック
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-      vscode.window.showErrorMessage('No workspace folder is open.');
+      vscode.window.showErrorMessage(NO_WORKSPACE_ERROR);
       return;
     }
 
@@ -20,9 +21,10 @@ export function activate(context: vscode.ExtensionContext) {
     // schema.prisma のパスを作成
     const prismaPath = path.join(workspaceRoot, 'schema.prisma');
 
+
     // schema.prisma が存在するかチェック
     if (!fs.existsSync(prismaPath)) {
-      vscode.window.showErrorMessage(`schema.prisma が見つかりません: ${prismaPath}`);
+      vscode.window.showErrorMessage(SCHEMA_NOT_FOUND_ERROR(prismaPath));
       return;
     }
 
@@ -34,7 +36,7 @@ export function activate(context: vscode.ExtensionContext) {
       // コンソールにも出力
       console.log('schema.prisma content:', schemaContent);
     } catch (error) {
-      vscode.window.showErrorMessage(`schema.prisma の読み込み中にエラーが発生しました: ${error}`);
+      vscode.window.showErrorMessage(SCHEMA_READ_ERROR(error));
     }
   });
 

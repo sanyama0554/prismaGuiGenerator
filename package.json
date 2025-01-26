@@ -22,6 +22,10 @@
       {
         "command": "extension.parsePrismaSchema",
         "title": "Parse Prisma Schema"
+      },
+      {
+        "command": "extension.showSchemaView",
+        "title": "Show Prisma Schema Viewer"
       }
     ]
   },

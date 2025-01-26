@@ -15,7 +15,6 @@ export function activate(context: vscode.ExtensionContext) {
   // 1. 既存のコマンド: schema.prismaを読み込んで内容を表示するだけ
   // =====================================================================================
   const disposable = vscode.commands.registerCommand('extension.readPrismaSchema', async () => {
-    // ワークスペースチェック
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
       vscode.window.showErrorMessage(NO_WORKSPACE_ERROR);
@@ -40,11 +39,18 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   // =====================================================================================
-  // 2. 新コマンド: schema.prismaを読み込んでパースし、
-  //                モデル・フィールド・リレーション情報をコンソール出力する例
+  // 2. 新コマンド: WebViewでPrismaスキーマのGUI表示
   // =====================================================================================
-  const disposableParse = vscode.commands.registerCommand('extension.parsePrismaSchema', async () => {
-    // ワークスペースチェック
+  const disposableWebView = vscode.commands.registerCommand('extension.showSchemaView', async () => {
+    const panel = vscode.window.createWebviewPanel(
+      'prismaSchemaView',
+      'Prisma Schema Viewer',
+      vscode.ViewColumn.One,
+      {
+        enableScripts: true, // WebViewでJavaScriptを有効化
+      }
+    );
+
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
       vscode.window.showErrorMessage(NO_WORKSPACE_ERROR);
@@ -61,45 +67,131 @@ export function activate(context: vscode.ExtensionContext) {
 
     try {
       const schemaContent = fs.readFileSync(prismaPath, 'utf-8');
-
-      // parseSchemaでASTを取得
       const ast = getSchema(schemaContent);
-      // ast.list[] の中にdatasource/generator/model/enumなどが並ぶ
-      // type: 'model' の要素がモデル定義
       const models = ast.list.filter(item => item.type === 'model');
 
-      // ログ出力のサンプル: モデル名・フィールド・リレーション属性など
-      console.log('--- Parsed Models ---');
-      for (const model of models) {
-        console.log(`Model: ${model.name}`);
-
-        // model.properties にフィールド・ブロック情報が入っている
-        for (const prop of model.properties ?? []) {
-          if (prop.type === 'field') {
-            // フィールド名と型
-            console.log(`  Field: ${prop.name} (${prop.fieldType}${prop.array ? '[]' : ''})`);
-
-            // @relation(...) があればリレーション情報
-            const relationAttr = prop.attributes?.find(a => a.name === 'relation');
-            if (relationAttr) {
-              // relationAttr.namedParameters から fields, references, name などを取り出せる
-              const fieldsValue = relationAttr.args?.at(0)?.value; // ["someColumnId"] など
-              const refsValue   = relationAttr.args?.at(1)?.value; // ["id"] など
-              const relName     = relationAttr.args?.at(2)?.value;  // リレーション名があれば
-              console.log(`    Relation found: fields=${JSON.stringify(fieldsValue)}, references=${JSON.stringify(refsValue)}, name=${relName || 'N/A'}`);
-            }
+      const schemaData = models.map(model => ({
+        name: model.name,
+        fields: model.properties.map(prop => {
+          if ('name' in prop && 'fieldType' in prop) {
+            return {
+              name: prop.name,
+              type: prop.fieldType,
+              isArray: 'array' in prop ? prop.array : false,
+              isOptional: 'optional' in prop ? prop.optional : false,
+            };
           }
-        }
-      }
+          return null;
+        }).filter(Boolean),
+      }));
 
-      vscode.window.showInformationMessage('Parsed schema.prisma. Check the console (Debug Console) for details.');
+      panel.webview.html = getWebviewContent();
+
+      // WebViewへモデル情報を送信
+      panel.webview.postMessage({ command: 'loadSchema', data: schemaData });
+
+      // WebViewからのメッセージを受信
+      panel.webview.onDidReceiveMessage((message) => {
+        switch (message.command) {
+          case 'submitSelection':
+            vscode.window.showInformationMessage(`Selected model: ${message.data.model}, fields: ${message.data.fields.join(', ')}`);
+            console.log('User Selection:', message.data);
+            break;
+        }
+      });
     } catch (error) {
       vscode.window.showErrorMessage(SCHEMA_READ_ERROR(error));
     }
   });
 
-  // 登録
-  context.subscriptions.push(disposable, disposableParse);
+  // コマンド登録
+  context.subscriptions.push(disposable, disposableWebView);
+}
+
+// WebViewのHTMLコンテンツ
+function getWebviewContent(): string {
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Prisma Schema Viewer</title>
+      <script>
+        let schemaData = [];
+
+        window.addEventListener('message', event => {
+          const message = event.data;
+          if (message.command === 'loadSchema') {
+            schemaData = message.data;
+            populateModels(schemaData);
+          }
+        });
+
+        function populateModels(models) {
+          const modelSelect = document.getElementById('modelSelect');
+          modelSelect.innerHTML = '';
+          models.forEach(model => {
+            let option = document.createElement('option');
+            option.value = model.name;
+            option.textContent = model.name;
+            modelSelect.appendChild(option);
+          });
+          modelSelect.onchange = () => populateFields(models, modelSelect.value);
+          populateFields(models, models[0].name);
+        }
+
+        function populateFields(models, selectedModel) {
+          const model = models.find(m => m.name === selectedModel);
+          const fieldsContainer = document.getElementById('fields');
+          fieldsContainer.innerHTML = '';
+          model.fields.forEach(field => {
+            let div = document.createElement('div');
+            div.innerHTML = \`
+              <input type="checkbox" id="\${field.name}" value="\${field.name}">
+              <label for="\${field.name}">\${field.name} (\${field.type})</label>
+              <input type="text" id="condition_\${field.name}" placeholder="Condition">
+            \`;
+            fieldsContainer.appendChild(div);
+          });
+        }
+
+        function submitSelection() {
+          const model = document.getElementById('modelSelect').value;
+          const selectedFields = [];
+          document.querySelectorAll('#fields input[type="checkbox"]:checked').forEach(checkbox => {
+            selectedFields.push({
+              name: checkbox.value,
+              condition: document.getElementById('condition_' + checkbox.value).value
+            });
+          });
+
+          const vscode = acquireVsCodeApi();
+          vscode.postMessage({
+            command: 'submitSelection',
+            data: {
+              model,
+              fields: selectedFields
+            }
+          });
+        }
+      </script>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        h2 { color: #333; }
+        select, button { margin: 10px 0; padding: 8px; }
+      </style>
+    </head>
+    <body>
+      <h2>Prisma Schema Viewer</h2>
+      <label for="modelSelect">Select Model:</label>
+      <select id="modelSelect"></select>
+      <h3>Fields:</h3>
+      <div id="fields"></div>
+      <button onclick="submitSelection()">Submit Selection</button>
+    </body>
+    </html>
+  `;
 }
 
 export function deactivate() {}

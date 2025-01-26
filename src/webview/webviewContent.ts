@@ -7,12 +7,15 @@ export function getWebviewContent(): string {
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Prisma Schema Viewer</title>
       <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
       <script>
         let schemaData = [];
 
         window.addEventListener('message', event => {
+          console.log("Received message:", event.data);
           const message = event.data;
           if (message.command === 'loadSchema') {
+            console.log("Schema data received:", message.data);
             schemaData = message.data;
             renderTables(schemaData.models);
             setTimeout(() => renderERDiagram(schemaData.models), 500);
@@ -21,15 +24,20 @@ export function getWebviewContent(): string {
 
         function renderTables(models) {
           const container = document.getElementById('tablesContainer');
+          console.log("Container found:", container);
+          if (!container) return;
           container.innerHTML = '';
           container.style.display = 'flex';
           container.style.flexWrap = 'wrap';
           container.style.gap = '20px';
           container.style.justifyContent = 'center';
 
+          console.log("Rendering tables with data:", models);
           models.forEach(model => {
             const table = document.createElement('div');
             table.className = 'table-card';
+            table.setAttribute('data-x', '0');
+            table.setAttribute('data-y', '0');
 
             const header = document.createElement('div');
             header.className = 'table-header';
@@ -65,39 +73,67 @@ export function getWebviewContent(): string {
 
             container.appendChild(table);
           });
+
+          interact('.table-card').draggable({
+            inertia: true,
+            modifiers: [
+              interact.modifiers.restrictRect({
+                restriction: 'parent',
+                endOnly: true
+              })
+            ],
+            autoScroll: true,
+            listeners: {
+              move(event) {
+                const target = event.target;
+                let x = (parseFloat(target.getAttribute('data-x')) || 0) + event.dx;
+                let y = (parseFloat(target.getAttribute('data-y')) || 0) + event.dy;
+                target.style.transform = \`translate(\${x}px, \${y}px)\`;
+                target.setAttribute('data-x', x.toString());
+                target.setAttribute('data-y', y.toString());
+              }
+            }
+          });
         }
 
         function renderERDiagram(models) {
-          let diagram = 'erDiagram\\n';
+          let diagram = 'erDiagram\\\\n';
 
           models.forEach(model => {
-            diagram += \`  \${model.name} {\\n\`;
+            diagram += \`  \${model.name} {\\\\n\`;
             model.fields.forEach(field => {
-              diagram += \`    \${field.type} \${field.name}\\n\`;
+              diagram += \`    \${field.type} \${field.name}\\\\n\`;
             });
-            diagram += \`  }\\n\`;
+            diagram += \`  }\\\\n\`;
           });
 
           models.forEach(model => {
             model.fields.forEach(field => {
               if (field.relation && field.relation.target) {
-                diagram += \`  \${model.name} ||--o{ \${field.relation.target} : "\${field.name}"\\n\`;
+                diagram += \`  \${model.name} ||--o{ \${field.relation.target} : "\${field.name}"\\\\n\`;
               }
             });
           });
 
-          document.getElementById('mermaidChart').innerText = diagram;
+          const mermaidChart = document.getElementById('mermaidChart');
+          if (!mermaidChart) return;
+          mermaidChart.innerText = diagram;
           mermaid.initialize({ startOnLoad: true, theme: "dark" });
-          mermaid.init(undefined, document.getElementById('mermaidChart'));
+          mermaid.init(undefined, mermaidChart);
         }
 
         function submitSelection() {
           const selectedTables = [];
           document.querySelectorAll('.table-card').forEach(table => {
-            const tableName = table.querySelector('.table-header span').textContent;
+            const titleSpan = table.querySelector('.table-header span');
+            if (!titleSpan || !titleSpan.textContent) return;
+            const tableName = titleSpan.textContent;
             const selectedFields = [];
+
             table.querySelectorAll('.field input[type="checkbox"]:checked').forEach(checkbox => {
-              selectedFields.push(checkbox.parentElement.textContent.trim());
+              const parent = checkbox.parentElement;
+              if (!parent || !parent.textContent) return;
+              selectedFields.push(parent.textContent.trim());
             });
 
             if (selectedFields.length > 0) {
@@ -127,6 +163,11 @@ export function getWebviewContent(): string {
           width: 300px;
           box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
           text-align: left;
+          position: relative;
+          cursor: grab;
+        }
+        .table-card:active {
+          cursor: grabbing;
         }
         .table-header {
           display: flex;
@@ -135,10 +176,6 @@ export function getWebviewContent(): string {
           font-size: 18px;
           font-weight: bold;
           margin-bottom: 10px;
-        }
-        .table-header input {
-          transform: scale(1.3);
-          cursor: pointer;
         }
         .field {
           display: flex;
@@ -149,10 +186,6 @@ export function getWebviewContent(): string {
         }
         .field:last-child {
           border-bottom: none;
-        }
-        input[type="checkbox"] {
-          transform: scale(1.2);
-          cursor: pointer;
         }
         .mermaid {
           text-align: left;

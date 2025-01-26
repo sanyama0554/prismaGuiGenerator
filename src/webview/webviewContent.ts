@@ -15,21 +15,25 @@ export function getWebviewContent(): string {
           if (message.command === 'loadSchema') {
             schemaData = message.data;
             renderTables(schemaData.models);
-            renderERDiagram(schemaData.models);
+            setTimeout(() => renderERDiagram(schemaData.models), 500);
           }
         });
 
         function renderTables(models) {
           const container = document.getElementById('tablesContainer');
           container.innerHTML = '';
-          models.forEach((model, index) => {
+          container.style.display = 'flex';
+          container.style.flexWrap = 'wrap';
+          container.style.gap = '20px';
+          container.style.justifyContent = 'center';
+
+          models.forEach(model => {
             const table = document.createElement('div');
             table.className = 'table-card';
-            table.style.left = (index * 350) + 'px';
-            table.style.top = (index * 50) + 'px';
 
             const header = document.createElement('div');
             header.className = 'table-header';
+
             const tableTitle = document.createElement('span');
             tableTitle.textContent = model.name;
 
@@ -74,16 +78,16 @@ export function getWebviewContent(): string {
             diagram += \`  }\\n\`;
           });
 
-          // リレーションの追加
           models.forEach(model => {
             model.fields.forEach(field => {
-              if (field.relation) {
-                diagram += \`  \${model.name} }|--|| \${field.relation.target} : "\${field.name}"\\n\`;
+              if (field.relation && field.relation.target) {
+                diagram += \`  \${model.name} ||--o{ \${field.relation.target} : "\${field.name}"\\n\`;
               }
             });
           });
 
-          document.getElementById('mermaidChart').innerHTML = diagram;
+          document.getElementById('mermaidChart').innerText = diagram;
+          mermaid.initialize({ startOnLoad: true, theme: "dark" });
           mermaid.init(undefined, document.getElementById('mermaidChart'));
         }
 
@@ -120,10 +124,9 @@ export function getWebviewContent(): string {
           background: #2d2d3a;
           border-radius: 8px;
           padding: 15px;
-          margin: 15px;
           width: 300px;
           box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
-          position: absolute;
+          text-align: left;
         }
         .table-header {
           display: flex;
@@ -152,8 +155,15 @@ export function getWebviewContent(): string {
           cursor: pointer;
         }
         .mermaid {
-          text-align: center;
+          text-align: left;
+          white-space: pre-wrap;
           margin-top: 20px;
+          background: #2d2d3a;
+          padding: 10px;
+          border-radius: 8px;
+          color: #fff;
+          max-width: 90%;
+          overflow-x: auto;
         }
         button {
           padding: 10px 20px;

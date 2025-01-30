@@ -228,11 +228,19 @@ function getScripts(): string {
         let code = '';
 
         selectedTables.forEach(table => {
-          code += \`const res = await prisma.\${table.tableName.toLowerCase()}.findMany({\\n  select: {\\n\`;
-          table.fields.forEach(field => {
-            code += \`    \${field}: true,\\n\`;
-          });
-          code += '  }\\n});\\n\\n';
+          // schemaDataから該当するモデルを探す
+          const modelInfo = schemaData.models.find(model => model.name === table.tableName);
+          
+          // モデルの全フィールド数と選択されたフィールド数を比較
+          if (modelInfo && table.fields.length === modelInfo.fields.length) {
+            code += \`const res = await prisma.\${table.tableName.toLowerCase()}.findMany();\\n\\n\`;
+          } else {
+            code += \`const res = await prisma.\${table.tableName.toLowerCase()}.findMany({\\n  select: {\\n\`;
+            table.fields.forEach(field => {
+              code += \`    \${field}: true,\\n\`;
+            });
+            code += '  }\\n});\\n\\n';
+          }
         });
 
         document.getElementById('generatedCode').innerText = code;

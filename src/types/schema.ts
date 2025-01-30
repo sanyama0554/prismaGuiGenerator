@@ -4,6 +4,13 @@ export interface SchemaField {
   isArray: boolean;
   isOptional: boolean;
   conditions?: string[];
+  relation?: {
+    name?: string;
+    fields?: string[];
+    references?: string[];
+    target: string;
+    onDelete?: string;
+  };
 }
 
 export interface SchemaModel {

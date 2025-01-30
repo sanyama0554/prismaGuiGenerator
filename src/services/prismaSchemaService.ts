@@ -4,6 +4,19 @@ import { getSchema } from '@mrleebo/prisma-ast';
 import { SchemaData, SchemaModel } from '../types/schema';
 
 export class PrismaSchemaService {
+  // 基本型の定義
+  private readonly PRIMITIVE_TYPES = new Set([
+    'String',
+    'Boolean',
+    'Int',
+    'BigInt',
+    'Float',
+    'Decimal',
+    'DateTime',
+    'Json',
+    'Bytes'
+  ]);
+
   constructor(private readonly workspaceRoot: string) {}
 
   async readSchema(): Promise<string> {
@@ -33,12 +46,62 @@ export class PrismaSchemaService {
       name: model.name,
       fields: model.properties
         .filter((prop: any) => 'name' in prop && 'fieldType' in prop)
-        .map((prop: any) => ({
-          name: prop.name,
-          type: prop.fieldType,
-          isArray: 'array' in prop ? prop.array : false,
-          isOptional: 'optional' in prop ? prop.optional : false,
-        }))
+        .map((prop: any) => {
+          const field = {
+            name: prop.name,
+            type: prop.fieldType,
+            isArray: 'array' in prop ? prop.array : false,
+            isOptional: 'optional' in prop ? prop.optional : false,
+          };
+
+          // リレーション情報の抽出
+          if (prop.attributes) {
+            const relationAttr = prop.attributes.find((attr: any) => attr.name === 'relation');
+            if (relationAttr) {
+              const relationFields = relationAttr.args.find((arg: any) => arg.name === 'fields')?.value ?? [];
+              const relationReferences = relationAttr.args.find((arg: any) => arg.name === 'references')?.value ?? [];
+              const onDelete = relationAttr.args.find((arg: any) => arg.name === 'onDelete')?.value;
+
+              return {
+                ...field,
+                relation: {
+                  name: relationAttr.args.find((arg: any) => arg.name === 'name')?.value,
+                  fields: Array.isArray(relationFields) ? relationFields : [relationFields],
+                  references: Array.isArray(relationReferences) ? relationReferences : [relationReferences],
+                  target: prop.fieldType,
+                  onDelete
+                }
+              };
+            }
+          }
+
+          // 配列型のフィールドの場合、それはリレーションである可能性が高い
+          if (field.isArray) {
+            const baseType = prop.fieldType.replace('[]', '');
+            // 基本型の配列は除外
+            if (!this.PRIMITIVE_TYPES.has(baseType)) {
+              return {
+                ...field,
+                relation: {
+                  target: baseType
+                }
+              };
+            }
+          }
+
+          // フィールドの型が他のモデルを参照している場合
+          // 基本型は除外
+          if (/^[A-Z]/.test(prop.fieldType) && !this.PRIMITIVE_TYPES.has(prop.fieldType)) {
+            return {
+              ...field,
+              relation: {
+                target: prop.fieldType
+              }
+            };
+          }
+
+          return field;
+        })
     };
   }
 } 

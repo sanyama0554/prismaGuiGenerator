@@ -12,10 +12,8 @@ export function getWebviewContent(): string {
         let schemaData = [];
 
         window.addEventListener('message', event => {
-          console.log("Received message:", event.data);
           const message = event.data;
           if (message.command === 'loadSchema') {
-            console.log("Schema data received:", message.data);
             schemaData = message.data;
             renderTables(schemaData.models);
             setTimeout(() => renderERDiagram(schemaData.models), 500);
@@ -24,7 +22,6 @@ export function getWebviewContent(): string {
 
         function renderTables(models) {
           const container = document.getElementById('tablesContainer');
-          console.log("Container found:", container);
           if (!container) return;
           container.innerHTML = '';
           container.style.display = 'flex';
@@ -32,12 +29,9 @@ export function getWebviewContent(): string {
           container.style.gap = '20px';
           container.style.justifyContent = 'center';
 
-          console.log("Rendering tables with data:", models);
           models.forEach(model => {
             const table = document.createElement('div');
             table.className = 'table-card';
-            table.setAttribute('data-x', '0');
-            table.setAttribute('data-y', '0');
 
             const header = document.createElement('div');
             header.className = 'table-header';
@@ -65,6 +59,7 @@ export function getWebviewContent(): string {
 
               const fieldCheckbox = document.createElement('input');
               fieldCheckbox.type = 'checkbox';
+              fieldCheckbox.setAttribute('data-field-name', field.name);
 
               fieldDiv.appendChild(fieldName);
               fieldDiv.appendChild(fieldCheckbox);
@@ -97,43 +92,43 @@ export function getWebviewContent(): string {
         }
 
         function renderERDiagram(models) {
-          let diagram = 'erDiagram\\\\n';
+          let diagram = 'erDiagram\\n';
 
           models.forEach(model => {
-            diagram += \`  \${model.name} {\\\\n\`;
+            diagram += \`  \${model.name} {\\n\`;
             model.fields.forEach(field => {
-              diagram += \`    \${field.type} \${field.name}\\\\n\`;
+              diagram += \`    \${field.type} \${field.name}\\n\`;
             });
-            diagram += \`  }\\\\n\`;
+            diagram += \`  }\\n\`;
           });
 
           models.forEach(model => {
             model.fields.forEach(field => {
               if (field.relation && field.relation.target) {
-                diagram += \`  \${model.name} ||--o{ \${field.relation.target} : "\${field.name}"\\\\n\`;
+                diagram += \`  \${model.name} ||--o{ \${field.relation.target} : "\${field.name}"\\n\`;
               }
             });
           });
 
+          // 正しいER図をmermaidに渡す
           const mermaidChart = document.getElementById('mermaidChart');
           if (!mermaidChart) return;
-          mermaidChart.innerText = diagram;
+          mermaidChart.innerHTML = '';  // 余計な文字列を削除
           mermaid.initialize({ startOnLoad: true, theme: "dark" });
-          mermaid.init(undefined, mermaidChart);
+          mermaid.render('generatedDiagram', diagram, svgCode => {
+            mermaidChart.innerHTML = svgCode;
+          });
         }
 
         function submitSelection() {
           const selectedTables = [];
           document.querySelectorAll('.table-card').forEach(table => {
-            const titleSpan = table.querySelector('.table-header span');
-            if (!titleSpan || !titleSpan.textContent) return;
-            const tableName = titleSpan.textContent;
+            const tableName = table.querySelector('.table-header span').textContent.trim();
             const selectedFields = [];
 
             table.querySelectorAll('.field input[type="checkbox"]:checked').forEach(checkbox => {
-              const parent = checkbox.parentElement;
-              if (!parent || !parent.textContent) return;
-              selectedFields.push(parent.textContent.trim());
+              const fieldName = checkbox.getAttribute('data-field-name');
+              if (fieldName) selectedFields.push(fieldName);
             });
 
             if (selectedFields.length > 0) {
@@ -141,21 +136,30 @@ export function getWebviewContent(): string {
             }
           });
 
-          const vscode = acquireVsCodeApi();
-          vscode.postMessage({
-            command: 'submitSelection',
-            data: selectedTables
+          displayGeneratedCode(selectedTables);
+        }
+
+        function displayGeneratedCode(selectedTables) {
+          let code = '';
+
+          selectedTables.forEach(table => {
+            code += \`const res = await prisma.\${table.tableName.toLowerCase()}.findMany({\\n  select: {\\n\`;
+            table.fields.forEach(field => {
+              code += \`    \${field}: true,\\n\`;
+            });
+            code += '  }\\n});\\n\\n';
           });
+
+          document.getElementById('generatedCode').innerText = code;
         }
       </script>
       <style>
-        body { 
-          font-family: Arial, sans-serif; 
-          background-color: #1e1e2e; 
-          color: #c9d1d9; 
+        body {
+          font-family: Arial, sans-serif;
+          background-color: #1e1e2e;
+          color: #c9d1d9;
           padding: 20px;
         }
-        h2 { color: #fff; }
         .table-card {
           background: #2d2d3a;
           border-radius: 8px;
@@ -165,9 +169,6 @@ export function getWebviewContent(): string {
           text-align: left;
           position: relative;
           cursor: grab;
-        }
-        .table-card:active {
-          cursor: grabbing;
         }
         .table-header {
           display: flex;
@@ -187,16 +188,12 @@ export function getWebviewContent(): string {
         .field:last-child {
           border-bottom: none;
         }
-        .mermaid {
-          text-align: left;
-          white-space: pre-wrap;
-          margin-top: 20px;
-          background: #2d2d3a;
+        pre {
+          background-color: #2d2d3a;
           padding: 10px;
-          border-radius: 8px;
-          color: #fff;
-          max-width: 90%;
-          overflow-x: auto;
+          border-radius: 5px;
+          color: #c9d1d9;
+          margin-top: 20px;
         }
         button {
           padding: 10px 20px;
@@ -213,7 +210,8 @@ export function getWebviewContent(): string {
       <h2>Prisma Schema Viewer</h2>
       <div id="tablesContainer"></div>
       <div class="mermaid" id="mermaidChart"></div>
-      <button onclick="submitSelection()">Submit Selection</button>
+      <button onclick="submitSelection()">Generate Prisma Queries</button>
+      <pre id="generatedCode"></pre>
     </body>
     </html>
   `;
